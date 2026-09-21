@@ -8,6 +8,11 @@ from app.config import DEFAULT_SECRET, settings
 from app.database import get_db
 from app.routers import auth, branches, inventory, products, reports, sales, transfers, users, ws
 
+if not settings.secret_key.strip():
+    raise RuntimeError(
+        "SECRET_KEY is empty. Set it to a long random string, e.g. "
+        'python -c "import secrets; print(secrets.token_hex(32))"'
+    )
 if settings.environment == "production" and settings.secret_key == DEFAULT_SECRET:
     raise RuntimeError("SECRET_KEY must be changed before running in production.")
 
