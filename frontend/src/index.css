@@ -1,0 +1,37 @@
+@import '@fontsource-variable/bricolage-grotesque';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+  body { @apply bg-paper font-body text-ink antialiased; font-variant-numeric: tabular-nums; }
+  h1, h2, h3 { @apply font-display; }
+  :focus-visible { outline: 2px solid #5B3D9F; outline-offset: 2px; }
+  button { @apply cursor-pointer; }
+  button:disabled { @apply cursor-not-allowed; }
+}
+
+@layer components {
+  /* The one memorable element: the POS cart is drawn as a paper receipt with a torn edge. */
+  .ticket-edge {
+    height: 9px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Cpolygon points='0,0 16,0 8,9' fill='white'/%3E%3C/svg%3E") repeat-x;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+/* Only the receipt is printed (thermal printers: 80mm wide) */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 80mm; padding: 4mm; background: #fff; }
+  .no-print { display: none !important; }
+}

@@ -1,0 +1,42 @@
+# One command starts everything:   docker compose up -d --build
+# Then load demo data (optional):  docker compose exec backend python -m app.seed
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vapepos}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      POSTGRES_DB: ${POSTGRES_DB:-vapepos}
+    volumes:
+      - pgdata:/var/lib/postgresql/data      # your data lives here; survives restarts and rebuilds
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vapepos} -d ${POSTGRES_DB:-vapepos}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-vapepos}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vapepos}
+      SECRET_KEY: "${SECRET_KEY:?Set SECRET_KEY in .env - generate one with openssl rand -hex 32}"
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
+      BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-UTC}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  pgdata:

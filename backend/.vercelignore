@@ -1,0 +1,6 @@
+tests
+.env
+.venv
+__pycache__
+.pytest_cache
+alembic.ini.bak
