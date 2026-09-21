@@ -6,6 +6,7 @@ from app.database import get_db
 from app.deps import get_current_user, require_roles
 from app.models import Product, User
 from app.realtime import manager
+from app.routers.categories import ensure_category
 from app.schemas import ProductIn, ProductOut, ProductUpdate
 from app.services.inventory import create_rows_for_new_product
 
@@ -61,6 +62,7 @@ def create_product(
         raise HTTPException(status.HTTP_409_CONFLICT, "A product with this barcode already exists.")
     product = Product(**body.model_dump())
     db.add(product)
+    ensure_category(db, product.category)
     db.flush()
     create_rows_for_new_product(db, product)  # zero-stock row at every branch
     db.commit()
@@ -85,6 +87,7 @@ def update_product(
             raise HTTPException(status.HTTP_409_CONFLICT, "A product with this barcode already exists.")
     for key, value in data.items():
         setattr(product, key, value)
+    ensure_category(db, product.category)
     db.commit()
     background.add_task(manager.publish, "product.updated", [], {"product_id": product.id})
     return _out(product, user)

@@ -21,7 +21,7 @@ from sqlalchemy import select, text
 
 from app.database import SessionLocal
 from app.models import (
-    Branch, BranchInventory, Product, Sale, SaleItem, StockTransfer, StockTransferEvent,
+    Branch, BranchInventory, Discount, Product, Sale, SaleItem, StockTransfer, StockTransferEvent,
     StockTransferItem, User,
 )
 from app.security import hash_password
@@ -81,7 +81,7 @@ def money(x) -> Decimal:
 def reset(db) -> None:
     tables = (
         "stock_transfer_events, stock_transfer_items, stock_transfers, stock_movements, sale_items, sales, "
-        "z_reports, branch_inventory, products, users, branches"
+        "z_reports, branch_inventory, discounts, categories, app_settings, products, users, branches"
     )
     db.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     db.commit()
@@ -193,6 +193,14 @@ def seed(db) -> None:
     # make sure the demo transfers are actually possible
     for pid, src in ((products[9].id, dt.id), (products[10].id, dt.id), (products[0].id, ar.id)):
         inventory[(pid, src)].stock_quantity = max(inventory[(pid, src)].stock_quantity, 20)
+    db.commit()
+
+    # ---- demo discounts (so the Discounts page and the till have something to show) ----
+    db.add_all([
+        Discount(name="Welcome offer", code="WELCOME10", type="percent", value=Decimal("10"), applies_to="all"),
+        Discount(name="Coil deal", code="COILS5", type="fixed", value=Decimal("5.00"), applies_to="category",
+                 category="coil", min_purchase=Decimal("20.00")),
+    ])
     db.commit()
 
 

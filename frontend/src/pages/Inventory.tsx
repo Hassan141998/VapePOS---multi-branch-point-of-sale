@@ -3,8 +3,9 @@ import clsx from 'clsx'
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Pill, Select, Spinner, TableWrap, td, th } from '../components/ui'
+import { useCategories } from '../hooks/queries'
 import { api, errorMessage } from '../lib/api'
-import { CATEGORIES, categoryLabel } from '../lib/format'
+import { catLabel } from '../lib/format'
 import type { InventoryRow, Product } from '../lib/types'
 import { useAuth } from '../store/auth'
 import { useActiveBranch } from '../store/branch'
@@ -70,10 +71,11 @@ function AdjustModal({ row, onClose }: { row: InventoryRow | null; onClose: () =
 export default function Inventory() {
   const user = useAuth((s) => s.user)!
   const { branchId } = useActiveBranch()
-  const [params, setParams] = useSearchParams()
+  const [params] = useSearchParams()
+  const { data: categories = [] } = useCategories()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
-  const lowOnly = params.get('low') === '1'
+  const [status, setStatus] = useState<'all' | 'in' | 'low' | 'out'>(params.get('low') === '1' ? 'low' : 'all')
   const [editing, setEditing] = useState<InventoryRow | null>(null)
   const canEdit = user.role !== 'cashier'
 
@@ -94,34 +96,54 @@ export default function Inventory() {
     const q = search.trim().toLowerCase()
     const list = [...map.values()].filter(({ product: p, cells }) => {
       if (category && p.category !== category) return false
-      if (lowOnly && ![...cells.values()].some((c) => c.is_low)) return false
+      const cellList = [...cells.values()]
+      if (status === 'low' && !cellList.some((c) => c.is_low)) return false
+      if (status === 'out' && !cellList.some((c) => c.stock_quantity === 0)) return false
+      if (status === 'in' && !cellList.some((c) => c.stock_quantity > 0)) return false
       if (!q) return true
       return [p.name, p.barcode, p.flavor, p.brand].some((v) => v?.toLowerCase().includes(q))
     })
     return { branchCols: [...cols.entries()].sort((a, b) => a[0] - b[0]), products: list }
-  }, [rows, search, category, lowOnly])
+  }, [rows, search, category, status])
+
+  const summary = useMemo(() => ({
+    products: new Set(rows.map((r) => r.product.id)).size,
+    units: rows.reduce((sum, r) => sum + r.stock_quantity, 0),
+    low: rows.filter((r) => r.is_low && r.stock_quantity > 0).length,
+    out: rows.filter((r) => r.stock_quantity === 0).length,
+  }), [rows])
 
   return (
     <>
       <PageHeader title="Inventory" subtitle={branchId == null ? 'Stock at every location' : 'Stock on this branch\u2019s shelves'} />
+      <Card className="mb-5 grid divide-y divide-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
+        {[
+          ['Products', summary.products, 'In the catalogue'],
+          ['Units in stock', summary.units, branchId == null ? 'Across all locations' : 'On this branch\u2019s shelves'],
+          ['Low stock', summary.low, 'At or below their alert level'],
+          ['Out of stock', summary.out, 'Nothing left to sell'],
+        ].map(([label, value, note]) => (
+          <div key={label as string} className="px-5 py-4">
+            <div className="text-sm text-ink-muted">{label}</div>
+            <div className="mt-1 font-display text-2xl font-semibold tracking-tight">{isLoading ? '-' : (value as number).toLocaleString()}</div>
+            <div className="mt-0.5 text-xs text-ink-muted">{note}</div>
+          </div>
+        ))}
+      </Card>
       <Card>
         <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
           <Input className="!w-64" placeholder="Search name, flavor, barcode" value={search} onChange={(e) => setSearch(e.target.value)} />
           <Select className="!w-44" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
             <option value="">All categories</option>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel[c]}</option>)}
+            {categories.map((c) => <option key={c.id} value={c.name}>{catLabel(c.name)}</option>)}
           </Select>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox" checked={lowOnly} className="h-4 w-4 accent-[#46307E]"
-              onChange={(e) => setParams(e.target.checked ? { low: '1' } : {})}
-            />
-            Only show low stock
-          </label>
+          <Select className="!w-44" value={status} onChange={(e) => setStatus(e.target.value as typeof status)} aria-label="Stock level">
+            <option value="all">All stock levels</option><option value="in">In stock</option><option value="low">Low stock</option><option value="out">Out of stock</option>
+          </Select>
           <span className="ml-auto text-sm text-ink-muted">{products.length} products</span>
         </div>
         {isLoading ? <Spinner /> : products.length === 0 ? (
-          <Empty title="No products match">{lowOnly ? 'Nothing is running low right now.' : 'Try clearing the search or category.'}</Empty>
+          <Empty title="No products match">{status !== 'all' ? 'No products have this stock level right now.' : 'Try clearing the search or category.'}</Empty>
         ) : (
           <TableWrap>
             <thead>

@@ -15,7 +15,7 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 @router.post("/login", response_model=TokenOut)
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """Sign in with username + password. Returns a JWT and the user profile."""
-    user = db.scalar(select(User).where(func.lower(User.username) == form.username.lower()))
+    user = db.scalar(select(User).where(func.lower(User.username) == form.username.strip().lower()))
     if not user or not user.is_active or not verify_password(form.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password.")
     if user.role != "admin":

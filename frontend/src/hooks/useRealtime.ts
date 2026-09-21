@@ -6,12 +6,15 @@ import { useLive } from '../store/live'
 
 /** Which cached queries are stale when the server announces a change. */
 const INVALIDATE: Record<string, string[]> = {
-  'sale.created': ['dashboard', 'sales', 'zreport'],
+  'sale.created': ['dashboard', 'sales', 'zreport', 'reports'],
   'inventory.changed': ['inventory', 'dashboard'],
   'transfer.updated': ['transfers'],
-  'product.updated': ['products', 'inventory'],
+  'product.updated': ['products', 'inventory', 'categories'],
   'branch.updated': ['branches'],
   'zreport.closed': ['zreport'],
+  'category.updated': ['categories', 'products', 'inventory', 'discounts'],
+  'discount.updated': ['discounts'],
+  'settings.updated': ['settings'],
 }
 
 /** VITE_REALTIME=poll: no WebSocket, just refresh what is on screen every 10 seconds (for hosts without WebSockets). */

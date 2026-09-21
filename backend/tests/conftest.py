@@ -37,7 +37,7 @@ def _clean():
     with engine.begin() as conn:
         conn.execute(text(
             "TRUNCATE stock_transfer_events, stock_transfer_items, stock_transfers, stock_movements, sale_items, "
-            "sales, z_reports, branch_inventory, products, users, branches RESTART IDENTITY CASCADE"
+            "sales, z_reports, branch_inventory, discounts, categories, app_settings, products, users, branches RESTART IDENTITY CASCADE"
         ))
     yield
 

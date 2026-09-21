@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, model_valida
 Money = Annotated[Decimal, PlainSerializer(lambda v: float(v), return_type=float, when_used="json")]
 
 Role = Literal["admin", "manager", "cashier"]
-Category = Literal["device", "pod", "coil", "e-liquid", "disposable", "accessory"]
 NicotineType = Literal["none", "freebase", "salt"]
 PaymentMethod = Literal["cash", "card"]
 TransferStatus = Literal["pending", "in_transit", "received", "cancelled"]
@@ -99,6 +98,7 @@ class UserOut(ORM):
     branch_id: int | None
     branch_name: str | None
     is_active: bool
+    created_at: datetime | None = None
 
 
 class TokenOut(BaseModel):
@@ -114,7 +114,7 @@ class ProductBase(BaseModel):
     barcode: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=150)
     brand: str | None = Field(default=None, max_length=80)
-    category: Category | None = None
+    category: str | None = Field(default=None, max_length=50)
     flavor: str | None = Field(default=None, max_length=50)
     nicotine_type: NicotineType = "none"
     nicotine_strength: str | None = Field(default=None, max_length=20)
@@ -133,7 +133,7 @@ class ProductUpdate(BaseModel):
     barcode: str | None = Field(default=None, min_length=1, max_length=100)
     name: str | None = Field(default=None, min_length=1, max_length=150)
     brand: str | None = None
-    category: Category | None = None
+    category: str | None = Field(default=None, max_length=50)
     flavor: str | None = None
     nicotine_type: NicotineType | None = None
     nicotine_strength: str | None = None
@@ -265,13 +265,16 @@ class SaleCreate(BaseModel):
     items: list[SaleItemIn] = Field(min_length=1)
     payment_method: PaymentMethod = "cash"
     amount_tendered: Decimal | None = Field(default=None, ge=0)
+    discount_code: str | None = Field(default=None, max_length=40, description="Code of an active discount to apply")
 
 
 class SaleItemOut(ORM):
     product_id: int
     product_name: str
+    barcode: str | None = None
     quantity: int
     unit_price: Money
+    discount_amount: Money = Decimal("0")
     line_total: Money
 
 
@@ -287,6 +290,9 @@ class SaleOut(ORM):
     payment_method: PaymentMethod
     amount_tendered: Money | None
     change_due: Money | None
+    discount_amount: Money = Decimal("0")
+    discount_code: str | None = None
+    discount_name: str | None = None
     created_at: datetime
     items: list[SaleItemOut]
 
@@ -402,3 +408,182 @@ class DashboardOut(BaseModel):
     top_flavors: list[TopItem]
     top_devices: list[TopItem]
     low_stock: list[LowStockItem]
+
+
+# --------------------------------------------------------------------------- #
+# Categories
+# --------------------------------------------------------------------------- #
+class CategoryIn(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class CategoryUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class CategoryOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    product_count: int
+
+
+# --------------------------------------------------------------------------- #
+# Discounts
+# --------------------------------------------------------------------------- #
+DiscountType = Literal["percent", "fixed"]
+DiscountScope = Literal["all", "category", "product"]
+DiscountStatus = Literal["active", "scheduled", "expired", "disabled"]
+
+
+class DiscountBase(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    code: str = Field(min_length=2, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
+    type: DiscountType
+    value: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    applies_to: DiscountScope = "all"
+    category: str | None = Field(default=None, max_length=50)
+    product_id: int | None = None
+    min_purchase: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
+    starts_on: date | None = None
+    ends_on: date | None = None
+    is_active: bool = True
+
+    @model_validator(mode="after")
+    def coherent(self):
+        if self.type == "percent" and self.value > 100:
+            raise ValueError("A percentage discount cannot be more than 100%")
+        if self.applies_to == "category" and not self.category:
+            raise ValueError("Choose the category this discount applies to")
+        if self.applies_to == "product" and self.product_id is None:
+            raise ValueError("Choose the product this discount applies to")
+        if self.starts_on and self.ends_on and self.ends_on < self.starts_on:
+            raise ValueError("The end date cannot be before the start date")
+        return self
+
+
+class DiscountIn(DiscountBase):
+    pass
+
+
+class DiscountOut(BaseModel):
+    id: int
+    name: str
+    code: str
+    type: DiscountType
+    value: Money
+    applies_to: DiscountScope
+    category: str | None
+    product_id: int | None
+    product_name: str | None
+    min_purchase: Money
+    starts_on: date | None
+    ends_on: date | None
+    is_active: bool
+    status: DiscountStatus
+
+
+# --------------------------------------------------------------------------- #
+# Settings
+# --------------------------------------------------------------------------- #
+FontFamily = Literal["Arial", "Courier New", "Georgia", "Tahoma", "Times New Roman", "Verdana"]
+
+
+class BusinessSettings(BaseModel):
+    """Shop-wide profile and currency (System Settings page)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    business_name: str = Field(default="VapePOS", min_length=1, max_length=100)
+    email: str | None = Field(default=None, max_length=120)
+    website: str | None = Field(default=None, max_length=200)
+    currency: str = Field(default="PKR", pattern=r"^[A-Za-z]{3}$")
+    currency_symbol: str | None = Field(default="Rs", max_length=5, description="Optional; overrides the symbol")
+
+
+class ReceiptDesign(BaseModel):
+    """How printed receipts look (Receipt Designer page). Defaults reproduce the built-in receipt."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    width_px: int = Field(default=300, ge=200, le=420)
+    font_size: int = Field(default=12, ge=8, le=18)
+    font_family: FontFamily = "Arial"
+    print_after_sale: bool = False
+    # header
+    show_logo: bool = False
+    logo_data_url: str | None = Field(default=None, max_length=250_000)
+    show_business_name: bool = False
+    show_address: bool = False
+    show_phone: bool = False
+    show_email: bool = False
+    show_website: bool = False
+    show_tax_number: bool = True
+    header_extra: str = Field(default="", max_length=300)
+    # content
+    show_receipt_number: bool = True
+    show_datetime: bool = True
+    show_cashier: bool = True
+    show_item_barcode: bool = False
+    show_unit_price: bool = True
+    show_tax_line: bool = True
+    show_payment: bool = True
+    # footer
+    show_branch_footer: bool = True
+    footer_text: str = Field(default="", max_length=300)
+    return_policy: str = Field(default="", max_length=500)
+    show_receipt_barcode: bool = False
+
+    @model_validator(mode="after")
+    def logo_is_an_image(self):
+        if self.logo_data_url and not self.logo_data_url.startswith(("data:image/png", "data:image/jpeg", "data:image/svg+xml", "data:image/webp")):
+            raise ValueError("The logo must be a PNG, JPEG, WebP or SVG image")
+        return self
+
+
+class SettingsOut(BaseModel):
+    business: BusinessSettings
+    receipt: ReceiptDesign
+    timezone: str
+
+
+# --------------------------------------------------------------------------- #
+# Sales report (Reports page)
+# --------------------------------------------------------------------------- #
+class SalesReportTotals(BaseModel):
+    revenue: Money  # net of discounts, before tax
+    transactions: int
+    avg_transaction: Money
+    items_sold: int
+    discounts: Money
+
+
+class SalesReportDay(BaseModel):
+    date: date
+    revenue: Money
+    transactions: int
+
+
+class SalesReportProduct(BaseModel):
+    product_id: int
+    name: str
+    category: str | None
+    quantity: int
+    revenue: Money
+
+
+class SalesReportCategory(BaseModel):
+    category: str
+    quantity: int
+    revenue: Money
+
+
+class SalesReportOut(BaseModel):
+    date_from: date
+    date_to: date
+    totals: SalesReportTotals
+    daily: list[SalesReportDay]
+    top_products: list[SalesReportProduct]
+    by_category: list[SalesReportCategory]

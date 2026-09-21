@@ -1,17 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { Minus, Plus, Search, Trash2 } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { Minus, Percent, Plus, Search, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Receipt } from '../components/Receipt'
-import { Button, Card, Empty, Input, Modal, Pill, Spinner } from '../components/ui'
-import { useBranches } from '../hooks/queries'
+import { Button, Card, Empty, Input, Modal, Pill, Select, Spinner } from '../components/ui'
+import { useBranches, useCategories, useDiscounts, useSettings } from '../hooks/queries'
 import { api, errorMessage } from '../lib/api'
-import { CATEGORIES, categoryLabel, money } from '../lib/format'
+import { catLabel, discountValue, money } from '../lib/format'
+import { priceCart, toCents } from '../lib/pricing'
 import type { InventoryRow, PaymentMethod, Product, Sale } from '../lib/types'
 import { useActiveBranch } from '../store/branch'
 import { toast } from '../store/toast'
-
-const cents = (n: number) => Math.round(n * 100)
 
 function attributes(p: Product): string[] {
   const out: string[] = []
@@ -34,7 +33,24 @@ export default function Pos() {
   const [method, setMethod] = useState<PaymentMethod>('card')
   const [tendered, setTendered] = useState('')
   const [sale, setSale] = useState<Sale | null>(null)
+  const [discountId, setDiscountId] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
+  const { data: categories = [] } = useCategories()
+  const { data: allDiscounts = [] } = useDiscounts()
+  const { receipt: design } = useSettings()
+
+  // Press "/" anywhere on this screen to jump to the search box.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (e.key === '/' && !(el && ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) && !el?.isContentEditable) {
+        e.preventDefault()
+        searchRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const inventory = useQuery({
     queryKey: ['inventory', 'pos', branchId],
@@ -57,11 +73,19 @@ export default function Pos() {
     .map(([id, qty]) => ({ row: byId.get(Number(id)), qty }))
     .filter((l): l is { row: InventoryRow; qty: number } => !!l.row)
 
-  const subtotal = lines.reduce((s, l) => s + cents(l.row.product.selling_price) * l.qty, 0)
+  const activeDiscounts = allDiscounts.filter((d) => d.status === 'active')
+  const discount = activeDiscounts.find((d) => String(d.id) === discountId) ?? null
   const taxRate = branch?.tax_rate ?? 0
-  const tax = Math.round((subtotal * taxRate) / 100)
-  const total = subtotal + tax
-  const tenderedCents = tendered === '' ? total : cents(Number(tendered))
+  // Same maths as the server (lib/pricing.ts mirrors backend/app/services/pricing.py).
+  const priced = priceCart(
+    lines.map((l) => ({ productId: l.row.product.id, category: l.row.product.category, unitCents: toCents(l.row.product.selling_price), qty: l.qty })),
+    taxRate,
+    discount,
+  )
+  const subtotal = priced.itemsTotal
+  const tax = priced.tax
+  const total = priced.total
+  const tenderedCents = tendered === '' ? total : toCents(Number(tendered))
   const short = method === 'cash' && tenderedCents < total
   const overStock = lines.some((l) => l.qty > l.row.stock_quantity)
 
@@ -79,7 +103,7 @@ export default function Pos() {
     else next[id] = qty
     setCart(next)
   }
-  const clear = () => { setCart({}); setTendered('') }
+  const clear = () => { setCart({}); setTendered(''); setDiscountId('') }
 
   const onSearchEnter = () => {
     const q = search.trim()
@@ -94,13 +118,16 @@ export default function Pos() {
   const checkout = useMutation({
     mutationFn: async () =>
       (await api.post<Sale>('/sales', {
+        branch_id: branchId,  // admins choose the branch in the header; staff are locked to theirs (the server checks)
         items: lines.map((l) => ({ product_id: l.row.product.id, quantity: l.qty })),
         payment_method: method,
         amount_tendered: method === 'cash' ? tenderedCents / 100 : undefined,
+        discount_code: discount?.code,
       })).data,
     onSuccess: (data) => {
       setSale(data)
       clear()
+      if (design.print_after_sale) setTimeout(() => window.print(), 400)  // "Print automatically after sale" (Receipt Designer)
       qc.invalidateQueries({ queryKey: ['inventory'] })
       searchRef.current?.focus()
     },
@@ -136,7 +163,7 @@ export default function Pos() {
           />
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          {['', ...CATEGORIES].map((c) => (
+          {['', ...categories.filter((c) => c.product_count > 0).map((c) => c.name)].map((c) => (
             <button
               key={c}
               onClick={() => setCategory(c)}
@@ -145,7 +172,7 @@ export default function Pos() {
                 category === c ? 'border-currant-600 bg-currant-600 text-white' : 'border-line bg-white text-ink-soft hover:bg-paper',
               )}
             >
-              {c === '' ? 'Everything' : categoryLabel[c]}
+              {c === '' ? 'Everything' : catLabel(c)}
             </button>
           ))}
         </div>
@@ -202,7 +229,7 @@ export default function Pos() {
                   <li key={row.product.id} className="py-3">
                     <div className="flex justify-between gap-3">
                       <span className="text-sm font-medium leading-5">{row.product.name}</span>
-                      <span className="text-sm font-medium">{money((cents(row.product.selling_price) * qty) / 100)}</span>
+                      <span className="text-sm font-medium">{money((toCents(row.product.selling_price) * qty) / 100)}</span>
                     </div>
                     <div className="mt-1.5 flex items-center justify-between">
                       <div className="flex items-center gap-1">
@@ -222,8 +249,20 @@ export default function Pos() {
             )}
           </div>
 
+          {activeDiscounts.length > 0 && lines.length > 0 && (
+            <div className="border-t border-dashed border-ink/30 px-4 py-3">
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-ink-muted" htmlFor="pos-discount"><Percent size={13} /> Discount</label>
+              <Select id="pos-discount" value={discountId} onChange={(e) => setDiscountId(e.target.value)}>
+                <option value="">No discount</option>
+                {activeDiscounts.map((d) => <option key={d.id} value={d.id}>{d.name} ({discountValue(d)})</option>)}
+              </Select>
+              {priced.discountError && <p role="alert" className="mt-1.5 text-xs text-brick-600">{priced.discountError}</p>}
+            </div>
+          )}
+
           <div className="space-y-1 border-t border-dashed border-ink/30 px-4 py-3 text-sm">
             <div className="flex justify-between text-ink-soft"><span>Subtotal</span><span>{money(subtotal / 100)}</span></div>
+            {priced.discount > 0 && <div className="flex justify-between text-moss-700"><span>Discount ({discount?.code})</span><span>-{money(priced.discount / 100)}</span></div>}
             <div className="flex justify-between text-ink-soft"><span>Tax ({taxRate}%)</span><span>{money(tax / 100)}</span></div>
             <div className="flex items-baseline justify-between pt-1">
               <span className="font-medium">Total</span>
@@ -263,7 +302,7 @@ export default function Pos() {
             <Button
               size="lg"
               className="w-full"
-              disabled={lines.length === 0 || short || overStock || checkout.isPending}
+              disabled={lines.length === 0 || short || overStock || !!priced.discountError || checkout.isPending}
               onClick={() => checkout.mutate()}
             >
               {checkout.isPending ? 'Processing...' : `Charge ${money(total / 100)}`}

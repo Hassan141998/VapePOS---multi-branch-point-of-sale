@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Pill, Select, Spinner, TableWrap, td, th } from '../components/ui'
+import { useCategories } from '../hooks/queries'
 import { api, errorMessage } from '../lib/api'
-import { CATEGORIES, categoryLabel, money } from '../lib/format'
+import { catLabel, money } from '../lib/format'
 import type { Product } from '../lib/types'
 import { useAuth } from '../store/auth'
 import { toast } from '../store/toast'
@@ -14,7 +16,7 @@ interface Form {
   buying_price: string; selling_price: string; is_active: boolean
 }
 const blank: Form = {
-  barcode: '', name: '', brand: '', category: 'e-liquid', flavor: '', nicotine_type: 'none', nicotine_strength: '',
+  barcode: '', name: '', brand: '', category: '', flavor: '', nicotine_type: 'none', nicotine_strength: '',
   coil_resistance_ohm: '', device_variant: '', buying_price: '', selling_price: '', is_active: true,
 }
 const fromProduct = (p: Product): Form => ({
@@ -26,6 +28,7 @@ const fromProduct = (p: Product): Form => ({
 
 function ProductModal({ product, open, onClose }: { product: Product | null; open: boolean; onClose: () => void }) {
   const qc = useQueryClient()
+  const { data: categories = [] } = useCategories()
   const [f, setF] = useState<Form>(blank)
   const [error, setError] = useState('')
   const [loadedFor, setLoadedFor] = useState<string>('')
@@ -45,7 +48,7 @@ function ProductModal({ product, open, onClose }: { product: Product | null; ope
       }
       return product ? api.put(`/products/${product.id}`, body) : api.post('/products', body)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); qc.invalidateQueries({ queryKey: ['inventory'] }); toast.success('Product saved'); onClose() },
+    onSuccess: () => { for (const k of ['products', 'inventory', 'categories']) qc.invalidateQueries({ queryKey: [k] }); toast.success('Product saved'); onClose() },
     onError: (e) => setError(errorMessage(e)),
   })
 
@@ -57,10 +60,11 @@ function ProductModal({ product, open, onClose }: { product: Product | null; ope
           <Field label="Name" className="sm:col-span-2"><Input required value={f.name} onChange={(e) => set('name', e.target.value)} /></Field>
           <Field label="Barcode"><Input required value={f.barcode} onChange={(e) => set('barcode', e.target.value)} /></Field>
           <Field label="Brand"><Input value={f.brand} onChange={(e) => set('brand', e.target.value)} /></Field>
-          <Field label="Category">
+          <Field label="Category" hint={<Link to="/categories" className="text-currant-600 underline-offset-2 hover:underline">Add or edit categories</Link>}>
             <Select value={f.category} onChange={(e) => set('category', e.target.value)}>
               <option value="">None</option>
-              {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel[c]}</option>)}
+              {f.category && !categories.some((c) => c.name === f.category) && <option value={f.category}>{catLabel(f.category)}</option>}
+              {categories.map((c) => <option key={c.id} value={c.name}>{catLabel(c.name)}</option>)}
             </Select>
           </Field>
           <Field label="Flavor"><Input value={f.flavor} onChange={(e) => set('flavor', e.target.value)} placeholder="Mango Ice" /></Field>
@@ -90,15 +94,26 @@ function ProductModal({ product, open, onClose }: { product: Product | null; ope
 
 export default function Products() {
   const isAdmin = useAuth((s) => s.user?.role) === 'admin'
+  const [params] = useSearchParams()
+  const { data: categories = [] } = useCategories()
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('')
+  const [category, setCategory] = useState(params.get('category') ?? '')
+  const [sort, setSort] = useState<'name' | 'price-asc' | 'price-desc' | 'category'>('name')
   const [editing, setEditing] = useState<Product | null>(null)
   const [creating, setCreating] = useState(false)
 
-  const { data = [], isLoading } = useQuery({
+  const { data: fetched = [], isLoading } = useQuery({
     queryKey: ['products', search, category, isAdmin],
     queryFn: async () => (await api.get<Product[]>('/products', { params: { search: search || undefined, category: category || undefined, include_inactive: isAdmin } })).data,
   })
+
+  const data = useMemo(() => {
+    const list = [...fetched]
+    if (sort === 'price-asc') list.sort((a, b) => a.selling_price - b.selling_price)
+    else if (sort === 'price-desc') list.sort((a, b) => b.selling_price - a.selling_price)
+    else if (sort === 'category') list.sort((a, b) => (a.category ?? '~').localeCompare(b.category ?? '~') || a.name.localeCompare(b.name))
+    return list
+  }, [fetched, sort])
 
   return (
     <>
@@ -109,7 +124,11 @@ export default function Products() {
           <Input className="!w-64" placeholder="Search name, flavor, barcode" value={search} onChange={(e) => setSearch(e.target.value)} />
           <Select className="!w-44" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
             <option value="">All categories</option>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel[c]}</option>)}
+            {categories.map((c) => <option key={c.id} value={c.name}>{catLabel(c.name)}</option>)}
+          </Select>
+          <Select className="!w-44" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="Sort by">
+            <option value="name">Sort: Name</option><option value="price-asc">Sort: Price, low to high</option>
+            <option value="price-desc">Sort: Price, high to low</option><option value="category">Sort: Category</option>
           </Select>
         </div>
         {isLoading ? <Spinner /> : data.length === 0 ? <Empty title="No products found" /> : (
@@ -125,7 +144,7 @@ export default function Products() {
                     <div className="font-medium">{p.name}</div>
                     <div className="text-xs text-ink-muted">{[p.brand, p.flavor, p.coil_resistance_ohm && `${p.coil_resistance_ohm} \u03A9`, p.device_variant].filter(Boolean).join(' \u00B7 ')}</div>
                   </td>
-                  <td className={td}>{p.category ? categoryLabel[p.category] : '-'}</td>
+                  <td className={td}>{catLabel(p.category)}</td>
                   <td className={td}>{p.nicotine_strength ? `${p.nicotine_strength} ${p.nicotine_type !== 'none' ? p.nicotine_type : ''}` : '-'}</td>
                   <td className={td}><span className="text-ink-muted">{p.barcode}</span></td>
                   <td className={td}>{money(p.buying_price)}</td>

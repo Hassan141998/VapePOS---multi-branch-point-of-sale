@@ -11,6 +11,7 @@ export interface User {
   branch_id: number | null
   branch_name: string | null
   is_active: boolean
+  created_at?: string | null
 }
 
 export interface Branch {
@@ -68,7 +69,7 @@ export interface Transfer {
   events: TransferEvent[]
 }
 
-export interface SaleItem { product_id: number; product_name: string; quantity: number; unit_price: number; line_total: number }
+export interface SaleItem { product_id: number; product_name: string; barcode?: string | null; quantity: number; unit_price: number; discount_amount?: number; line_total: number }
 export interface Sale {
   id: number
   receipt_number: string
@@ -81,8 +82,20 @@ export interface Sale {
   payment_method: PaymentMethod
   amount_tendered: number | null
   change_due: number | null
+  discount_amount?: number
+  discount_code?: string | null
+  discount_name?: string | null
   created_at: string
   items: SaleItem[]
+}
+export interface SaleSummary {
+  id: number
+  receipt_number: string
+  branch_id: number
+  cashier_name: string | null
+  total_amount: number
+  payment_method: PaymentMethod
+  created_at: string
 }
 
 export interface ZTotals {
@@ -126,3 +139,72 @@ export interface Dashboard {
   top_devices: TopItem[]
   low_stock: { product_id: number; product_name: string; branch_id: number; branch_name: string; stock_quantity: number; min_threshold: number }[]
 }
+
+export interface Category { id: number; name: string; description: string | null; product_count: number }
+
+export type DiscountType = 'percent' | 'fixed'
+export type DiscountScope = 'all' | 'category' | 'product'
+export type DiscountStatus = 'active' | 'scheduled' | 'expired' | 'disabled'
+export interface Discount {
+  id: number
+  name: string
+  code: string
+  type: DiscountType
+  value: number
+  applies_to: DiscountScope
+  category: string | null
+  product_id: number | null
+  product_name: string | null
+  min_purchase: number
+  starts_on: string | null
+  ends_on: string | null
+  is_active: boolean
+  status: DiscountStatus
+}
+
+export interface BusinessSettings {
+  business_name: string
+  email: string | null
+  website: string | null
+  currency: string
+  currency_symbol: string | null
+}
+export type ReceiptFont = 'Arial' | 'Courier New' | 'Georgia' | 'Tahoma' | 'Times New Roman' | 'Verdana'
+export interface ReceiptDesign {
+  width_px: number
+  font_size: number
+  font_family: ReceiptFont
+  print_after_sale: boolean
+  show_logo: boolean
+  logo_data_url: string | null
+  show_business_name: boolean
+  show_address: boolean
+  show_phone: boolean
+  show_email: boolean
+  show_website: boolean
+  show_tax_number: boolean
+  header_extra: string
+  show_receipt_number: boolean
+  show_datetime: boolean
+  show_cashier: boolean
+  show_item_barcode: boolean
+  show_unit_price: boolean
+  show_tax_line: boolean
+  show_payment: boolean
+  show_branch_footer: boolean
+  footer_text: string
+  return_policy: string
+  show_receipt_barcode: boolean
+}
+export interface Settings { business: BusinessSettings; receipt: ReceiptDesign; timezone: string }
+
+export interface SalesReport {
+  date_from: string
+  date_to: string
+  totals: { revenue: number; transactions: number; avg_transaction: number; items_sold: number; discounts: number }
+  daily: { date: string; revenue: number; transactions: number }[]
+  top_products: { product_id: number; name: string; category: string | null; quantity: number; revenue: number }[]
+  by_category: { category: string; quantity: number; revenue: number }[]
+}
+
+export interface ImportResult { created: Record<string, number>; updated: Record<string, number>; skipped: string[] }

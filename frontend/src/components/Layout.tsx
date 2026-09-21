@@ -1,29 +1,61 @@
 import clsx from 'clsx'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeftRight, Boxes, ClipboardCheck, LayoutDashboard, Lock, LogOut, Menu, ShoppingCart, Store, Tags, Users, X,
+  ArrowLeftRight, BarChart3, Barcode, Boxes, ClipboardCheck, DatabaseBackup, FolderTree, LayoutDashboard, Lock, LogOut, Menu,
+  Percent, ReceiptText, ScanBarcode, Settings, ShoppingCart, Store, Tags, Users, X,
 } from 'lucide-react'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { useBranches } from '../hooks/queries'
+import { useBranches, useSettings } from '../hooks/queries'
 import { useRealtime } from '../hooks/useRealtime'
+import { setCurrency } from '../lib/format'
 import type { Role } from '../lib/types'
 import { useAuth } from '../store/auth'
 import { useBranchStore } from '../store/branch'
 import { useLive } from '../store/live'
-import { Select } from './ui'
+import { Select, Spinner } from './ui'
 
 const ALL: Role[] = ['admin', 'manager', 'cashier']
 const STAFF: Role[] = ['admin', 'manager']
-const NAV = [
-  { to: '/pos', label: 'Point of sale', icon: ShoppingCart, roles: ALL },
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: STAFF },
-  { to: '/inventory', label: 'Inventory', icon: Boxes, roles: ALL },
-  { to: '/transfers', label: 'Transfers', icon: ArrowLeftRight, roles: STAFF },
-  { to: '/products', label: 'Products', icon: Tags, roles: STAFF },
-  { to: '/end-of-day', label: 'End of day', icon: ClipboardCheck, roles: ALL },
-  { to: '/branches', label: 'Branches', icon: Store, roles: ['admin'] as Role[] },
-  { to: '/staff', label: 'Staff', icon: Users, roles: ['admin'] as Role[] },
+const ADMIN: Role[] = ['admin']
+const SECTIONS = [
+  {
+    title: 'Main',
+    items: [
+      { to: '/pos', label: 'Point of sale', icon: ShoppingCart, roles: ALL },
+      { to: '/sales', label: 'Sales', icon: ReceiptText, roles: ALL },
+      { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: STAFF },
+      { to: '/products', label: 'Products', icon: Tags, roles: STAFF },
+      { to: '/categories', label: 'Categories', icon: FolderTree, roles: STAFF },
+      { to: '/discounts', label: 'Discounts', icon: Percent, roles: STAFF },
+      { to: '/inventory', label: 'Inventory', icon: Boxes, roles: ALL },
+      { to: '/transfers', label: 'Transfers', icon: ArrowLeftRight, roles: STAFF },
+    ],
+  },
+  {
+    title: 'Tools',
+    items: [
+      { to: '/barcode-designer', label: 'Barcode Designer', icon: Barcode, roles: STAFF },
+      { to: '/barcode-generator', label: 'Barcode Generator', icon: ScanBarcode, roles: STAFF },
+      { to: '/receipt-designer', label: 'Receipt Designer', icon: ReceiptText, roles: ADMIN },
+    ],
+  },
+  {
+    title: 'Reports',
+    items: [
+      { to: '/reports', label: 'Reports', icon: BarChart3, roles: STAFF },
+      { to: '/end-of-day', label: 'End of day', icon: ClipboardCheck, roles: ALL },
+      { to: '/data-export', label: 'Data Export', icon: DatabaseBackup, roles: ADMIN },
+    ],
+  },
+  {
+    title: 'Manage',
+    items: [
+      { to: '/branches', label: 'Branches', icon: Store, roles: ADMIN },
+      { to: '/staff', label: 'Staff', icon: Users, roles: ADMIN },
+      { to: '/settings', label: 'System Settings', icon: Settings, roles: ADMIN },
+    ],
+  },
 ]
 
 function BranchSwitcher() {
@@ -70,24 +102,36 @@ export default function Layout() {
   const logout = useAuth((s) => s.logout)
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
-  const items = NAV.filter((n) => n.roles.includes(user.role))
+  const { business } = useSettings()
+  // The shop's currency comes from System Settings; the key changes with it so open pages redraw their prices.
+  const currencyKey = setCurrency(business.currency, business.currency_symbol)
+  const sections = SECTIONS
+    .map((sec) => ({ ...sec, items: sec.items.filter((n) => n.roles.includes(user.role)) }))
+    .filter((sec) => sec.items.length > 0)
 
   const nav = (
-    <nav className="flex flex-col gap-0.5 px-3">
-      {items.map(({ to, label, icon: Icon }) => (
-        <NavLink
-          key={to}
-          to={to}
-          onClick={() => setOpen(false)}
-          className={({ isActive }) =>
-            clsx(
-              'flex items-center gap-3 rounded-ctl px-3 py-2.5 text-sm font-medium transition-colors',
-              isActive ? 'bg-white/10 text-white shadow-[inset_3px_0_0_#59D4A9]' : 'text-white/70 hover:bg-white/5 hover:text-white',
-            )
-          }
-        >
-          <Icon size={18} /> {label}
-        </NavLink>
+    <nav className="flex flex-col gap-4 overflow-y-auto px-3 pb-4">
+      {sections.map((sec) => (
+        <div key={sec.title}>
+          <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-white/40">{sec.title}</div>
+          <div className="flex flex-col gap-0.5">
+            {sec.items.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                onClick={() => setOpen(false)}
+                className={({ isActive }) =>
+                  clsx(
+                    'flex items-center gap-3 rounded-ctl px-3 py-2 text-sm font-medium transition-colors',
+                    isActive ? 'bg-white/10 text-white shadow-[inset_3px_0_0_#59D4A9]' : 'text-white/70 hover:bg-white/5 hover:text-white',
+                  )
+                }
+              >
+                <Icon size={18} /> {label}
+              </NavLink>
+            ))}
+          </div>
+        </div>
       ))}
     </nav>
   )
@@ -95,8 +139,8 @@ export default function Layout() {
   return (
     <div className="min-h-screen lg:flex">
       {/* Desktop sidebar */}
-      <aside className="no-print sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-ink py-5 lg:flex">
-        <div className="mb-6 px-6 font-display text-xl font-semibold text-white">VapePOS</div>
+      <aside className="no-print sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-ink pt-5 lg:flex">
+        <div className="mb-5 truncate px-6 font-display text-xl font-semibold text-white" title={business.business_name}>{business.business_name}</div>
         {nav}
       </aside>
 
@@ -104,9 +148,9 @@ export default function Layout() {
       {open && (
         <div className="no-print fixed inset-0 z-40 lg:hidden" onClick={() => setOpen(false)}>
           <div className="absolute inset-0 bg-ink/50" />
-          <aside className="relative h-full w-64 bg-ink py-5" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-6 flex items-center justify-between px-6 font-display text-xl font-semibold text-white">
-              VapePOS
+          <aside className="relative flex h-full w-64 flex-col bg-ink pt-5" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-5 flex items-center justify-between px-6 font-display text-xl font-semibold text-white">
+              <span className="truncate">{business.business_name}</span>
               <button onClick={() => setOpen(false)} aria-label="Close menu"><X size={20} /></button>
             </div>
             {nav}
@@ -134,7 +178,7 @@ export default function Layout() {
             </button>
           </div>
         </header>
-        <main className="min-w-0 flex-1 p-4 lg:p-6"><Outlet /></main>
+        <main className="min-w-0 flex-1 p-4 lg:p-6"><Suspense fallback={<Spinner />}><Outlet key={currencyKey} /></Suspense></main>
       </div>
     </div>
   )

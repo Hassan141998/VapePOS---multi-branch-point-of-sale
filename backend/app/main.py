@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.config import DEFAULT_SECRET, settings
 from app.database import get_db
-from app.routers import auth, branches, inventory, products, reports, sales, transfers, users, ws
+from app.routers import (
+    auth, branches, categories, dataio, discounts, inventory, products, reports, sales, transfers, users, ws,
+)
+from app.routers import settings as settings_router
 
 if not settings.secret_key.strip():
     raise RuntimeError(
@@ -34,7 +37,9 @@ app.add_middleware(
 )
 
 API = "/api/v1"
-for module in (auth, branches, users, products, inventory, transfers, sales, reports):
+for module in (
+    auth, branches, users, products, categories, discounts, inventory, transfers, sales, reports, settings_router, dataio,
+):
     app.include_router(module.router, prefix=API)
 app.include_router(ws.router, prefix=API)
 

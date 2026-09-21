@@ -42,7 +42,7 @@ export function Select({ className, children, ...props }: ComponentProps<'select
 export function Textarea({ className, ...props }: ComponentProps<'textarea'>) {
   return <textarea {...props} className={clsx(control, 'min-h-[72px]', className)} />
 }
-export function Field({ label, hint, children, className }: { label: string; hint?: string; children: ReactNode; className?: string }) {
+export function Field({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <label className={clsx('block', className)}>
       <span className="mb-1 block text-sm font-medium text-ink-soft">{label}</span>

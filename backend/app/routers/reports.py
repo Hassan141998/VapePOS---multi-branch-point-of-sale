@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import Date, case, cast, desc, func, select
+from sqlalchemy import Date, case, cast, desc, distinct, func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -13,6 +13,7 @@ from app.models import Branch, BranchInventory, Product, Sale, SaleItem, User, Z
 from app.realtime import manager
 from app.schemas import (
     BranchTotal, DailySales, DailySeries, DashboardKpis, DashboardOut, LowStockItem,
+    SalesReportCategory, SalesReportDay, SalesReportOut, SalesReportProduct, SalesReportTotals,
     TopItem, ZCloseIn, ZReportOut, ZReportView, ZTotals,
 )
 from app.services.timeutils import day_bounds, day_start_utc, today_local
@@ -182,7 +183,7 @@ def dashboard(
         select(func.coalesce(func.sum(Sale.total_amount), 0), func.count(Sale.id)).where(*sale_filter(t_start, t_end))
     ).one()
     profit = db.scalar(
-        select(func.coalesce(func.sum((SaleItem.unit_price - SaleItem.unit_cost) * SaleItem.quantity), 0))
+        select(func.coalesce(func.sum((SaleItem.unit_price - SaleItem.unit_cost) * SaleItem.quantity - SaleItem.discount_amount), 0))
         .join(Sale, SaleItem.sale_id == Sale.id).where(*period)
     )
     low_filter = (
@@ -201,7 +202,7 @@ def dashboard(
 
     # Top sellers
     qty = func.sum(SaleItem.quantity)
-    revenue = func.sum(SaleItem.quantity * SaleItem.unit_price)
+    revenue = func.sum(SaleItem.quantity * SaleItem.unit_price - SaleItem.discount_amount)
     base = (
         select(qty.label("q"), revenue.label("r"))
         .select_from(SaleItem)
@@ -233,4 +234,83 @@ def dashboard(
         top_devices=[TopItem(label=r.name, quantity=int(r.q), revenue=r.r) for r in device_rows],
         low_stock=[LowStockItem(product_id=r[0], product_name=r[1], branch_id=r[2], branch_name=r[3],
                                 stock_quantity=r[4], min_threshold=r[5]) for r in low_rows],
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Sales report (Reports page)
+# --------------------------------------------------------------------------- #
+@router.get("/sales-summary", response_model=SalesReportOut)
+def sales_summary(
+    date_from: date | None = Query(None, description="First local business day (default: 6 days ago)"),
+    date_to: date | None = Query(None, description="Last local business day (default: today)"),
+    branch_id: int | None = Query(None, description="Omit (admin only) for all locations"),
+    product_id: int | None = None,
+    category: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("admin", "manager")),
+):
+    """
+    Sales between two business days, optionally for one product and/or category.
+
+    Revenue = item prices after discounts and before tax, so it can be split by product and
+    category (tax is per receipt). "Transactions" counts receipts that contain a matching item.
+    """
+    scoped = scope_branch(user, branch_id)
+    today = today_local()
+    date_to = date_to or today
+    date_from = date_from or (date_to - timedelta(days=6))
+    if date_to < date_from:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The end date is before the start date.")
+    if (date_to - date_from).days > 365:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pick a range of one year or less.")
+
+    start, end = day_start_utc(date_from), day_start_utc(date_to + timedelta(days=1))
+    where = [Sale.created_at >= start, Sale.created_at < end]
+    if scoped is not None:
+        where.append(Sale.branch_id == scoped)
+    if product_id is not None:
+        where.append(SaleItem.product_id == product_id)
+    if category:
+        where.append(Product.category == category)
+
+    net = SaleItem.quantity * SaleItem.unit_price - SaleItem.discount_amount
+    base = select().select_from(SaleItem).join(Sale, SaleItem.sale_id == Sale.id).join(Product, SaleItem.product_id == Product.id).where(*where)
+
+    t = db.execute(base.add_columns(
+        func.coalesce(func.sum(net), 0), func.count(distinct(Sale.id)),
+        func.coalesce(func.sum(SaleItem.quantity), 0), func.coalesce(func.sum(SaleItem.discount_amount), 0),
+    )).one()
+    revenue, transactions, items, discounts = t[0], int(t[1]), int(t[2]), t[3]
+    totals = SalesReportTotals(
+        revenue=revenue, transactions=transactions, items_sold=items, discounts=discounts,
+        avg_transaction=(Decimal(revenue) / transactions).quantize(Decimal("0.01")) if transactions else ZERO,
+    )
+
+    local_day = cast(func.timezone(settings.business_timezone, Sale.created_at), Date)
+    day_rows = {
+        r.d: r
+        for r in db.execute(base.add_columns(local_day.label("d"), func.sum(net).label("rev"), func.count(distinct(Sale.id)).label("n")).group_by("d"))
+    }
+    days = [date_from + timedelta(days=i) for i in range((date_to - date_from).days + 1)]
+    daily = [
+        SalesReportDay(date=d, revenue=day_rows[d].rev if d in day_rows else ZERO, transactions=int(day_rows[d].n) if d in day_rows else 0)
+        for d in days
+    ]
+
+    qty = func.sum(SaleItem.quantity)
+    top = db.execute(
+        base.add_columns(Product.id, Product.name, Product.category, qty.label("q"), func.sum(net).label("rev"))
+        .group_by(Product.id, Product.name, Product.category)
+        .order_by(desc("q"), desc("rev"), Product.name).limit(10)
+    ).all()
+    cat_label = func.coalesce(Product.category, "Uncategorized")
+    cats = db.execute(
+        base.add_columns(cat_label.label("c"), qty.label("q"), func.sum(net).label("rev")).group_by("c").order_by(desc("rev"))
+    ).all()
+
+    return SalesReportOut(
+        date_from=date_from, date_to=date_to, totals=totals, daily=daily,
+        top_products=[SalesReportProduct(product_id=r[0], name=r[1], category=r[2], quantity=int(r.q), revenue=r.rev) for r in top],
+        by_category=[SalesReportCategory(category=r.c, quantity=int(r.q), revenue=r.rev) for r in cats],
     )

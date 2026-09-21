@@ -20,7 +20,7 @@ export default function Login() {
     setError('')
     try {
       // The API expects a classic form post (OAuth2 password flow)
-      const body = new URLSearchParams({ username, password })
+      const body = new URLSearchParams({ username: username.trim(), password })
       const { data } = await api.post<{ access_token: string; user: User }>('/auth/login', body)
       login(data.access_token, data.user)
     } catch (err) {

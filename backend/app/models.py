@@ -2,9 +2,9 @@
 Database models (SQLAlchemy 2.0 declarative style).
 
 Tables:
-  branches, users, products, branch_inventory, stock_movements,
+  branches, users, products, categories, discounts, branch_inventory, stock_movements,
   stock_transfers, stock_transfer_items, stock_transfer_events,
-  sales, sale_items, z_reports
+  sales, sale_items, z_reports, app_settings
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from decimal import Decimal
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    JSON,
     Date,
     DateTime,
     ForeignKey,
@@ -33,6 +34,8 @@ from app.database import Base
 ROLES = ("admin", "manager", "cashier")
 TRANSFER_STATUSES = ("pending", "in_transit", "received", "cancelled")
 PAYMENT_METHODS = ("cash", "card")
+DISCOUNT_TYPES = ("percent", "fixed")
+DISCOUNT_SCOPES = ("all", "category", "product")
 
 
 def _now_col() -> Mapped[datetime]:
@@ -139,6 +142,71 @@ class StockMovement(Base):
     note: Mapped[str | None] = mapped_column(Text)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = _now_col()
+
+
+# --------------------------------------------------------------------------- #
+# Categories, discounts, settings
+# --------------------------------------------------------------------------- #
+class Category(Base):
+    """Product categories. Products reference them by NAME (products.category), so a rename cascades."""
+
+    __tablename__ = "categories"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now_col()
+
+
+class Discount(Base):
+    __tablename__ = "discounts"
+    __table_args__ = (
+        CheckConstraint("type IN ('percent','fixed')", name="ck_discount_type"),
+        CheckConstraint("applies_to IN ('all','category','product')", name="ck_discount_scope"),
+        CheckConstraint("value > 0", name="ck_discount_value"),
+        CheckConstraint("type <> 'percent' OR value <= 100", name="ck_discount_percent"),
+        CheckConstraint("min_purchase >= 0", name="ck_discount_min_purchase"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    code: Mapped[str] = mapped_column(String(40), unique=True)  # stored upper-case
+    type: Mapped[str] = mapped_column(String(10))  # percent | fixed
+    value: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    applies_to: Mapped[str] = mapped_column(String(10), default="all", server_default="all")
+    category: Mapped[str | None] = mapped_column(String(50))
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"))
+    min_purchase: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"), server_default="0")
+    starts_on: Mapped[date | None] = mapped_column(Date)
+    ends_on: Mapped[date | None] = mapped_column(Date)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = _now_col()
+
+    product: Mapped[Product | None] = relationship(lazy="joined")
+
+    @property
+    def product_name(self) -> str | None:
+        return self.product.name if self.product else None
+
+    def status_on(self, today: date) -> str:
+        """disabled | scheduled | expired | active, judged on the business calendar day `today`."""
+        if not self.is_active:
+            return "disabled"
+        if self.starts_on and today < self.starts_on:
+            return "scheduled"
+        if self.ends_on and today > self.ends_on:
+            return "expired"
+        return "active"
+
+
+class AppSetting(Base):
+    """Key/value store for business-wide settings (JSON), e.g. 'business' and 'receipt'."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 # --------------------------------------------------------------------------- #
@@ -254,6 +322,11 @@ class Sale(Base):
     payment_method: Mapped[str] = mapped_column(String(20), default="cash", server_default="cash")
     amount_tendered: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     change_due: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    # Discount snapshot. `subtotal` is NET of the discount, so subtotal + tax_amount == total_amount
+    # always holds (the Z-report relies on that).
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"), server_default="0")
+    discount_code: Mapped[str | None] = mapped_column(String(40))
+    discount_name: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = _now_col()
 
     branch: Mapped[Branch] = relationship(lazy="joined")
@@ -278,6 +351,7 @@ class SaleItem(Base):
     quantity: Mapped[int] = mapped_column(Integer)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))  # snapshot
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(10, 2))  # snapshot, for profit reports
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"), server_default="0")  # this line's share
 
     sale: Mapped[Sale] = relationship(back_populates="items")
     product: Mapped[Product] = relationship(lazy="joined")
@@ -285,6 +359,10 @@ class SaleItem(Base):
     @property
     def line_total(self) -> Decimal:
         return self.unit_price * self.quantity
+
+    @property
+    def barcode(self) -> str | None:
+        return self.product.barcode if self.product else None
 
 
 # --------------------------------------------------------------------------- #
