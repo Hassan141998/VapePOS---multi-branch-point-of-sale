@@ -3,7 +3,7 @@ import { Eye, EyeOff, Image as ImageIcon, Printer, RotateCcw, Save, Trash2 } fro
 import { useMemo, useRef, useState } from 'react'
 import { ReceiptPaper } from '../components/Receipt'
 import { RangeField, Tabs, Toggle } from '../components/controls'
-import { Button, Card, ErrorNote, Field, PageHeader, Select, Spinner, Textarea } from '../components/ui'
+import { Button, Card, ErrorNote, Field, Input, PageHeader, Select, Spinner, Textarea } from '../components/ui'
 import { useBranches, useSettings } from '../hooks/queries'
 import { api, errorMessage } from '../lib/api'
 import { priceCart, toCents } from '../lib/pricing'
@@ -139,8 +139,14 @@ export default function ReceiptDesigner() {
                 {logoError && <div className="mt-2"><ErrorNote>{logoError}</ErrorNote></div>}
               </div>
               <Toggle label="Show business name" hint="From System Settings." checked={d.show_business_name} onChange={(v) => set('show_business_name', v)} />
-              <Toggle label="Show address" hint="The branch address." checked={d.show_address} onChange={(v) => set('show_address', v)} />
-              <Toggle label="Show phone" hint="The branch phone." checked={d.show_phone} onChange={(v) => set('show_phone', v)} />
+              <Toggle label="Show address" hint="Uses the branch's own address (Branches page) when it has one." checked={d.show_address} onChange={(v) => set('show_address', v)} />
+              <Field label="Fallback address" hint="Printed only for a branch that has no address of its own." className="pl-1">
+                <Input maxLength={200} value={d.fallback_address} onChange={(e) => set('fallback_address', e.target.value)} placeholder="123 Main St, City, Country" />
+              </Field>
+              <Toggle label="Show phone" hint="Uses the branch's own phone (Branches page) when it has one." checked={d.show_phone} onChange={(v) => set('show_phone', v)} />
+              <Field label="Fallback phone" hint="Printed only for a branch that has no phone of its own." className="pl-1">
+                <Input maxLength={40} value={d.fallback_phone} onChange={(e) => set('fallback_phone', e.target.value)} placeholder="+1 (555) 123-4567" />
+              </Field>
               <Toggle label="Show email" hint="From System Settings." checked={d.show_email} onChange={(v) => set('show_email', v)} />
               <Toggle label="Show website" hint="From System Settings." checked={d.show_website} onChange={(v) => set('show_website', v)} />
               <Toggle label="Show tax number" checked={d.show_tax_number} onChange={(v) => set('show_tax_number', v)} />

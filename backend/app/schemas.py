@@ -517,7 +517,9 @@ class ReceiptDesign(BaseModel):
     logo_data_url: str | None = Field(default=None, max_length=250_000)
     show_business_name: bool = False
     show_address: bool = False
+    fallback_address: str = Field(default="", max_length=200, description="Used only when a branch has no address of its own")
     show_phone: bool = False
+    fallback_phone: str = Field(default="", max_length=40, description="Used only when a branch has no phone of its own")
     show_email: bool = False
     show_website: bool = False
     show_tax_number: bool = True

@@ -179,7 +179,9 @@ export interface ReceiptDesign {
   logo_data_url: string | null
   show_business_name: boolean
   show_address: boolean
+  fallback_address: string
   show_phone: boolean
+  fallback_phone: string
   show_email: boolean
   show_website: boolean
   show_tax_number: boolean

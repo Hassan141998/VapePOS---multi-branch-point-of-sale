@@ -32,8 +32,8 @@ export function ReceiptPaper({ sale, design, business }: { sale: Sale; design: R
         {design.show_business_name && business.business_name && <div className="font-semibold">{business.business_name}</div>}
         <div className="whitespace-pre-line font-semibold">{b.receipt_header_text || b.name}</div>
         {design.header_extra && <div className="whitespace-pre-line">{design.header_extra}</div>}
-        {design.show_address && b.address && <div className="whitespace-pre-line">{b.address}</div>}
-        {design.show_phone && b.phone && <div>Tel {b.phone}</div>}
+        {design.show_address && (b.address || design.fallback_address) && <div className="whitespace-pre-line">{b.address || design.fallback_address}</div>}
+        {design.show_phone && (b.phone || design.fallback_phone) && <div>Tel {b.phone || design.fallback_phone}</div>}
         {design.show_email && business.email && <div>{business.email}</div>}
         {design.show_website && business.website && <div>{business.website}</div>}
         {design.show_tax_number && b.tax_number && <div className="text-ink-muted">Tax no. {b.tax_number}</div>}
