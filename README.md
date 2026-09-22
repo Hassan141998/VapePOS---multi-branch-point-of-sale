@@ -17,6 +17,20 @@ and every branch sees the same live picture of stock and sales.
 | End of day (Z-Report) | Cash / card / tax totals per branch per day, cash-drawer count and variance, frozen once closed |
 | Live sync | WebSocket push: a sale or transfer at one shop updates every other screen within a second |
 
+## Screenshots
+
+| | |
+|---|---|
+| **Point of sale** ![POS](docs/screenshots/pos.png) | **Dashboard** ![Dashboard](docs/screenshots/dashboard.png) |
+| **Sales history** ![Sales](docs/screenshots/sales.png) | **Products** ![Products](docs/screenshots/products.png) |
+| **Categories** ![Categories](docs/screenshots/categories.png) | **Discounts** ![Discounts](docs/screenshots/discounts.png) |
+| **Inventory** ![Inventory](docs/screenshots/inventory.png) | **Transfers** ![Transfers](docs/screenshots/transfers.png) |
+| **Barcode Designer** ![Barcode Designer](docs/screenshots/barcode-designer.png) | **Barcode Generator** ![Barcode Generator](docs/screenshots/barcode-generator.png) |
+| **Receipt Designer** ![Receipt Designer](docs/screenshots/receipt-designer.png) | **Reports** ![Reports](docs/screenshots/reports.png) |
+| **End of day** ![End of day](docs/screenshots/end-of-day.png) | **Data Export & Import** ![Data Export](docs/screenshots/data-export.png) |
+| **Branches** ![Branches](docs/screenshots/branches.png) | **Staff** ![Staff](docs/screenshots/staff.png) |
+| **System Settings** ![System Settings](docs/screenshots/settings.png) | **Login** ![Login](docs/screenshots/login.png) |
+
 ## Quick start with Docker (recommended)
 
 You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) or Docker Engine + Compose plugin (Linux).
